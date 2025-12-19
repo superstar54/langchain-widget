@@ -19,6 +19,7 @@ LangChain Widget
 
    quick_start
    installation
+   widget_settings
    development
 
 

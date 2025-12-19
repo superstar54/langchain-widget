@@ -19,9 +19,16 @@ An `anywidget` + React chat UI for LangChain tool-calling chat models, built for
 pip install langchain-widget
 ```
 
+Extras for popular providers:
+
+```sh
+pip install "langchain-widget[openai]"
+pip install "langchain-widget[anthropic]"
+```
+
 ## Quick start
 
-In a notebook, create a `LangChainWidget` with your chat model and tools:
+In a notebook, create a `LangChainWidget` with your chat model and tools (you can use any LangChain chat model and pass your own tools):
 
 ```python
 from langchain_widget import LangChainWidget
@@ -43,9 +50,23 @@ w = LangChainWidget(
 w
 ```
 
+You can pass any LangChain tools (or your own `BaseTool` implementations) to support your use case.
+
 Here is how it looks in a Jupyter notebook:
 
 <img src="docs/source/_static/images/langchain-widget.png" width="100%"/>
+
+## Widget settings
+
+`LangChainWidget` accepts the following initialization settings:
+
+- `chat_model`: Required. A LangChain chat model that supports tool calling (for example, `ChatOpenAI`).
+- `tools`: Optional. An iterable of `BaseTool` instances or an object with a `.tools` attribute.
+- `system_prompt`: Optional. A system prompt string to steer the agent.
+- `max_steps`: Optional. Maximum number of tool-calling steps per user message.
+- `title`: Optional. Title shown in the chat UI.
+- `history_path`: Optional. Filesystem path for storing chat history. When omitted, history stays in memory only.
+- `sidebar_open`: Optional. Whether the left sidebar menu is open on initial render.
 
 
 ## Documentation

@@ -2,6 +2,193 @@ import * as React from "react";
 import { createRender, useModel, useModelState } from "@anywidget/react";
 import "./widget.css";
 
+function renderInline(text, getKey) {
+	const parts = [];
+	const pattern = /(`[^`]+`)|(\*\*[^*]+\*\*)/g;
+	let lastIndex = 0;
+	let match;
+	while ((match = pattern.exec(text)) !== null) {
+		if (match.index > lastIndex) {
+			parts.push(text.slice(lastIndex, match.index));
+		}
+		const token = match[0];
+		if (token.startsWith("`")) {
+			parts.push(
+				<code className="lcw_inline_code" key={getKey()}>
+					{token.slice(1, -1)}
+				</code>,
+			);
+		} else {
+			parts.push(<strong key={getKey()}>{token.slice(2, -2)}</strong>);
+		}
+		lastIndex = match.index + token.length;
+	}
+	if (lastIndex < text.length) {
+		parts.push(text.slice(lastIndex));
+	}
+	return parts;
+}
+
+function renderInlineWithBreaks(text, getKey) {
+	const lines = text.split("\n");
+	const rendered = [];
+	lines.forEach((line, idx) => {
+		if (idx > 0) {
+			rendered.push(<br key={getKey()} />);
+		}
+		rendered.push(...renderInline(line, getKey));
+	});
+	return rendered;
+}
+
+function splitTableRow(line) {
+	let trimmed = line.trim();
+	if (trimmed.startsWith("|")) trimmed = trimmed.slice(1);
+	if (trimmed.endsWith("|")) trimmed = trimmed.slice(0, -1);
+	return trimmed.split("|").map((cell) => cell.trim());
+}
+
+function isTableSeparator(line) {
+	return /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*$/.test(line);
+}
+
+function renderMarkdown(content) {
+	if (!content) return null;
+	const lines = String(content).split(/\r?\n/);
+	const blocks = [];
+	let i = 0;
+	let blockId = 0;
+	let inlineId = 0;
+	const nextBlockKey = () => `md-${blockId++}`;
+	const nextInlineKey = () => `md-inline-${inlineId++}`;
+
+	const isListItem = (line) => /^\s*[-*]\s+/.test(line);
+	const isHeading = (line) => /^\s*#{1,4}\s+/.test(line);
+	const isTableStart = (idx) => {
+		if (idx + 1 >= lines.length) return false;
+		const header = lines[idx];
+		if (!header.includes("|")) return false;
+		return isTableSeparator(lines[idx + 1]);
+	};
+
+	while (i < lines.length) {
+		const line = lines[i];
+		if (!line.trim()) {
+			i += 1;
+			continue;
+		}
+
+		if (line.startsWith("```")) {
+			const fence = line.trim();
+			const codeLines = [];
+			i += 1;
+			while (i < lines.length && !lines[i].startsWith("```")) {
+				codeLines.push(lines[i]);
+				i += 1;
+			}
+			if (i < lines.length && lines[i].startsWith("```")) {
+				i += 1;
+			}
+			const code = codeLines.join("\n");
+			blocks.push(
+				<pre className="lcw_pre lcw_codeblock" key={nextBlockKey()}>
+					{code || fence}
+				</pre>,
+			);
+			continue;
+		}
+
+		if (isTableStart(i)) {
+			const headers = splitTableRow(lines[i]);
+			i += 2;
+			const rows = [];
+			while (i < lines.length && lines[i].includes("|") && lines[i].trim()) {
+				if (isTableSeparator(lines[i])) {
+					i += 1;
+					continue;
+				}
+				rows.push(splitTableRow(lines[i]));
+				i += 1;
+			}
+			blocks.push(
+				<div className="lcw_table_wrap" key={nextBlockKey()}>
+					<table className="lcw_table">
+						<thead>
+							<tr>
+								{headers.map((cell) => (
+									<th key={nextBlockKey()}>{renderInline(cell, nextInlineKey)}</th>
+								))}
+							</tr>
+						</thead>
+						<tbody>
+							{rows.map((row, rowIdx) => (
+								<tr key={`${nextBlockKey()}-${rowIdx}`}>
+									{row.map((cell) => (
+										<td key={nextBlockKey()}>{renderInline(cell, nextInlineKey)}</td>
+									))}
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>,
+			);
+			continue;
+		}
+
+		if (isHeading(line)) {
+			const trimmed = line.trim();
+			const level = Math.min(4, trimmed.match(/^#+/)[0].length);
+			const text = trimmed.replace(/^#+\s+/, "");
+			const HeadingTag = level === 1 ? "h3" : level === 2 ? "h4" : level === 3 ? "h5" : "h6";
+			blocks.push(
+				<HeadingTag className="lcw_heading" key={nextBlockKey()}>
+					{renderInline(text, nextInlineKey)}
+				</HeadingTag>,
+			);
+			i += 1;
+			continue;
+		}
+
+		if (isListItem(line)) {
+			const items = [];
+			while (i < lines.length && isListItem(lines[i])) {
+				const itemText = lines[i].replace(/^\s*[-*]\s+/, "");
+				items.push(itemText);
+				i += 1;
+			}
+			blocks.push(
+				<ul className="lcw_list" key={nextBlockKey()}>
+					{items.map((item, idx) => (
+						<li key={`${nextBlockKey()}-${idx}`}>{renderInline(item, nextInlineKey)}</li>
+					))}
+				</ul>,
+			);
+			continue;
+		}
+
+		const paragraphLines = [];
+		while (
+			i < lines.length &&
+			lines[i].trim() &&
+			!lines[i].startsWith("```") &&
+			!isTableStart(i) &&
+			!isListItem(lines[i]) &&
+			!isHeading(lines[i])
+		) {
+			paragraphLines.push(lines[i]);
+			i += 1;
+		}
+		const paragraphText = paragraphLines.join("\n");
+		blocks.push(
+			<p className="lcw_paragraph" key={nextBlockKey()}>
+				{renderInlineWithBreaks(paragraphText, nextInlineKey)}
+			</p>,
+		);
+	}
+
+	return blocks;
+}
+
 function Avatar({ role }) {
 	const letter = role === "assistant" ? "A" : role === "tool" ? "T" : "Y";
 	return <div className={`lcw_avatar lcw_avatar--${role}`}>{letter}</div>;
@@ -31,7 +218,7 @@ function Message({ message, logLevel }) {
 				<Avatar role="assistant" />
 				<div className="lcw_msg">
 					<div className="lcw_meta">assistant</div>
-					{message.content ? <div className="lcw_text">{message.content}</div> : null}
+					{message.content ? <div className="lcw_markdown">{renderMarkdown(message.content)}</div> : null}
 					{toolCalls.length && logLevel !== "minimal" ? (
 						logLevel === "debug" ? (
 							<details className="lcw_details">
@@ -72,14 +259,21 @@ const render = createRender(() => {
 	const [tools] = useModelState("tools");
 	const [title] = useModelState("title");
 	const [historyIndex] = useModelState("history_index");
+	const [sidebarOpen, setSidebarOpen] = useModelState("sidebar_open");
 
 	const [draft, setDraft] = React.useState("");
 	const [logLevel, setLogLevel] = React.useState("minimal"); // minimal | tools | debug
-	const endRef = React.useRef(null);
 	const chatRef = React.useRef(null);
+	const inputRef = React.useRef(null);
 	const [isAtBottom, setIsAtBottom] = React.useState(true);
-	const [sidebarOpen, setSidebarOpen] = React.useState(true);
 	const [sidebarTab, setSidebarTab] = React.useState("history"); // history | tools | settings
+	const isRunning = status && status !== "idle";
+
+	const scrollChatToBottom = React.useCallback(() => {
+		const el = chatRef.current;
+		if (!el) return;
+		el.scrollTop = el.scrollHeight;
+	}, []);
 
 	React.useEffect(() => {
 		if (!sidebarOpen) return;
@@ -87,26 +281,34 @@ const render = createRender(() => {
 	}, [model, sidebarOpen]);
 
 	const send = React.useCallback(() => {
+		if (isRunning) return;
 		const text = draft.trim();
 		if (!text) return;
 		model.send({ type: "user_message", content: text });
 		setDraft("");
-	}, [draft, model]);
+		requestAnimationFrame(() => {
+			try {
+				inputRef.current?.focus?.({ preventScroll: true });
+			} catch {
+				inputRef.current?.focus?.();
+			}
+		});
+	}, [draft, model, isRunning]);
 
 	React.useEffect(() => {
 		const handler = (msg) => {
 			if (msg?.content?.type === "scroll_to_bottom") {
-				if (isAtBottom) endRef.current?.scrollIntoView({ block: "end" });
+				if (isAtBottom) scrollChatToBottom();
 			}
 		};
 		model.on("msg:custom", handler);
 		return () => model.off("msg:custom", handler);
-	}, [model, isAtBottom]);
+	}, [model, isAtBottom, scrollChatToBottom]);
 
 	React.useEffect(() => {
 		if (!isAtBottom) return;
-		endRef.current?.scrollIntoView({ block: "end" });
-	}, [messages, status, isAtBottom]);
+		scrollChatToBottom();
+	}, [messages, status, isAtBottom, scrollChatToBottom]);
 
 	React.useEffect(() => {
 		const el = chatRef.current;
@@ -133,7 +335,11 @@ const render = createRender(() => {
 	}, [messages, logLevel]);
 
 	return (
-		<div className="langchain_widget lcw_root">
+		<div
+			className={sidebarOpen ? "langchain_widget lcw_root" : "langchain_widget lcw_root lcw_root--sidebar-collapsed"}
+			onMouseDown={(e) => e.stopPropagation()}
+			onClick={(e) => e.stopPropagation()}
+		>
 			{sidebarOpen ? (
 				<aside className="lcw_sidebar lcw_sidebar--left">
 					<div className="lcw_sidebar_header">
@@ -188,7 +394,7 @@ const render = createRender(() => {
 													</div>
 												</button>
 												<button
-													className="lcw_iconbtn lcw_iconbtn--square"
+													className="lcw_histdelete"
 													title="Delete"
 													onClick={() => model.send({ type: "history_delete", id: h.id })}
 												>
@@ -246,19 +452,6 @@ const render = createRender(() => {
 			<main className="lcw_main">
 				<div className="lcw_topbar">
 					<div className="lcw_top_title">{title || "Agent Chat"}</div>
-					<div className="lcw_top_actions">
-						<span className="lcw_status">{status}</span>
-						<button
-							className="lcw_btn"
-							onClick={() => model.send({ type: "cancel" })}
-							disabled={status === "idle"}
-						>
-							Stop
-						</button>
-						<button className="lcw_btn" onClick={() => model.send({ type: "reset" })}>
-							Clear
-						</button>
-					</div>
 				</div>
 
 				<div className="lcw_chat" ref={chatRef}>
@@ -266,9 +459,8 @@ const render = createRender(() => {
 						{displayedMessages.map((m) => (
 							<Message key={m.id} message={m} logLevel={logLevel} />
 						))}
-						<div ref={endRef} />
 						{!isAtBottom ? (
-							<button className="lcw_fab" onClick={() => endRef.current?.scrollIntoView({ block: "end" })}>
+							<button className="lcw_fab" onClick={scrollChatToBottom} onMouseDown={(e) => e.preventDefault()}>
 								Jump to latest
 							</button>
 						) : null}
@@ -278,11 +470,15 @@ const render = createRender(() => {
 				<div className="lcw_composer">
 					<div className="lcw_composer_inner">
 						<textarea
+							ref={inputRef}
 							className="lcw_input"
 							value={draft}
+							disabled={isRunning}
 							placeholder="Message…"
 							onChange={(e) => setDraft(e.target.value)}
+							onMouseDown={(e) => e.stopPropagation()}
 							onKeyDown={(e) => {
+								if (isRunning) return;
 								if (e.key !== "Enter") return;
 
 								// Prevent the Jupyter notebook from handling Enter / Shift+Enter while typing in the widget.
@@ -307,9 +503,32 @@ const render = createRender(() => {
 								send();
 							}}
 						/>
-						<button className="lcw_btn lcw_btn--primary" onClick={send}>
-							Send
-						</button>
+						{isRunning ? (
+							<button
+								className="lcw_btn"
+								onMouseDown={(e) => e.preventDefault()}
+								onClick={(e) => {
+									e.preventDefault();
+									e.stopPropagation();
+									model.send({ type: "cancel" });
+								}}
+							>
+								Stop
+							</button>
+						) : (
+							<button
+								className="lcw_btn lcw_btn--primary"
+								disabled={!draft.trim()}
+								onMouseDown={(e) => e.preventDefault()}
+								onClick={(e) => {
+									e.preventDefault();
+									e.stopPropagation();
+									send();
+								}}
+							>
+								Send
+							</button>
+						)}
 					</div>
 					<div className="lcw_hint">Enter to send • Shift+Enter for newline</div>
 				</div>

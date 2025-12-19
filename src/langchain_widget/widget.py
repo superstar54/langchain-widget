@@ -31,6 +31,7 @@ class LangChainWidget(anywidget.AnyWidget):
     tools = traitlets.List(traitlets.Dict()).tag(sync=True)
     context_items = traitlets.List(traitlets.Dict()).tag(sync=True)
     history_index = traitlets.List(traitlets.Dict()).tag(sync=True)
+    sidebar_open = traitlets.Bool(True).tag(sync=True)
 
     def _settings_default(self) -> Dict[str, Any]:
         return {"system_prompt": "", "max_steps": 8}
@@ -56,11 +57,13 @@ class LangChainWidget(anywidget.AnyWidget):
         max_steps: int = 8,
         title: str = "Agent Chat",
         history_path: Optional[str] = None,
+        sidebar_open: bool = True,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self._chat_model = chat_model
         self.title = title
+        self.sidebar_open = sidebar_open
         if tools is None:
             tools_list: List[BaseTool] = []
         elif hasattr(tools, "tools"):
